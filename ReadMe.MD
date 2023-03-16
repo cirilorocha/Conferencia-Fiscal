@@ -9,6 +9,8 @@ Esta é uma tela para conferência de documentos de entrada no **Totvs Protheus*
 * Visualizar o XML
 * Editar os Livros Fiscais
 
+![TelaConferencia](https://user-images.githubusercontent.com/96308173/225740021-dcfa28ed-9336-4a0d-95e5-30f084efaa46.png)
+
 A tela faz uma mescla de várias tabelas necessárias ao processo. São utilizados informações do _**Cabeçalho do Documento (SF1), Fornecedor/Cliente (SA1/SA2), itens do documento (SD1) e Livros Fiscais (SFT)**_. De forma que todos os dados necessários ao processo estejam disponíveis na mesma tela.
 
 O processo também possui registro de auditoria de qual usuário e quando fez a conferência, além do registro também quando existe o estorno da marcação de conferência. Inclusive para os casos onde o documento é excluído e relançado, desde que mantida a mesma chave única.
@@ -20,6 +22,8 @@ O processo de visualização de XML e PDF pode ser baseado na rotina padrão par
 ## Browser Principal
 
 O browser principal é montado através da união das **várias tabelas** necessárias na forma de uma tabela temporária. Esta montagem é parametrizada com diversos filtros por *filial, período e status.*
+
+![Browse](https://user-images.githubusercontent.com/96308173/225740095-75107e17-ade4-4c55-9b17-504b0c9d87b5.png)
 
 O objeto foi customizado de forma a permitir todas as funcionalidades de um browse padrão do Protheus, como:
 
