@@ -1,0 +1,347 @@
+#INCLUDE 'RWMake.ch'
+#INCLUDE 'Totvs.ch'
+#INCLUDE 'ParmType.ch'
+#INCLUDE 'CXInclude.ch'
+#INCLUDE 'CXnOpc.ch'
+#INCLUDE 'CXStruct.ch'
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| CXLibFWBrw                      | Autor | Cirilo Rocha       | Data | 16/01/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Conjunto de funções para manipulação do FWBrowse (FWmBrowse e FWFormBrowse)       |##
+//##|        | O processo ainda não ficou 100%, em algumas situações que não consegui identificar|##
+//##|        |  o tamanho das colunas se perde, e também não consigo fazer um refresh no compo-  |##
+//##|        |  nente FwMBrowse sem duplicar os botões e barra de pesquisa.                      |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|16/01/23| Cirilo R.| Inicialmente apenas funções para salvar e carregar o layout da tela    |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| CXBrLdCfg                       | Autor | Cirilo Rocha       | Data | 15/01/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Faz a carga da configuração de layout salva para o browser, preciso restaurar ape-|##
+//##|        |  nas o tamanho das colunas, as posições o padrão já faz                           |##
+//##|        | Serve tanto para o FwFormBrowse (array, query ou tabela temporária) e FWmBrowse   |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+Static aBkpSizeCol	:= NIL				AS Array
+//-------------------------------------------------------------------------------------------------
+User Function CXBrLdCfg(oBrw) //01 oBrw
+	
+	//Declaracao de variaveis----------------------------------------------------------------------
+	Local aColDel				AS Array
+	Local nX					AS Integer
+	Local nCol					AS Integer
+
+	//Parametros da rotina-------------------------------------------------------------------------
+	ParamType 0		VAR oBrw		AS Object
+	//---------------------------------------------------------------------------------------------
+	If 	ValType(oBrw:oConfig) <> 'O' .Or. ;
+		ValType(oBrw:oConfig:aWidth) <> 'A'
+
+		oBrw:LoadConfig()	//Carrega configurações salvas no objeto oBrw:oConfig
+	EndIf
+
+	//Preciso setar essa propriedade, para que as dimensões fiquem em pixel, igual ao que é lido e gravado
+	aEval(oBrw:aColumns,{|it,nX| it:SetAutoSize(.F.)})
+	aColDel		:= oBrw:oConfig:aDelColumns
+	If ValType(aColDel) == 'U'
+		aColDel	:= {}
+	EndIf
+	If ValType(aBkpSizeCol) == 'U'
+		aBkpSizeCol	:= {}
+	EndIf
+	aSize(aBkpSizeCol,Len(oBrw:aColumns))
+	For nX := 1 to Len(oBrw:aColumns)
+		aBkpSizeCol[nX]	:= oBrw:aColumns[nX]:nSize	//Guardo as dimensões originais para fazer um reset se necessário
+	Next
+
+	//Configura as larguras das colunas salvas-----------------------------------------------------
+	If 	ValType(oBrw:oConfig:aWidth) == 'A' .And. ;	//Existem configurações de largura salvas?
+		Len(oBrw:oConfig:aWidth) == Len(oBrw:aColumns)-Len(aColDel)	//Se a quantidade de colunas é divergente não aplica configurações!
+
+		nCol	:= 1
+		For nX := 1 to Len(oBrw:aColumns)
+			If aScan(aColDel,{|x| x[2] == nX } ) == 0	//Não está nas colunas deletadas
+				If nCol > Len(oBrw:oConfig:aWidth)
+					Exit
+				EndIf
+				oBrw:aColumns[nX]:SetSize(oBrw:oConfig:aWidth[nCol][2])	//Seta o tamanho das colunas personalizado
+				nCol++
+			EndIf
+		Next
+	EndIf
+
+Return
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| CXBrRsCfg                       | Autor | Cirilo Rocha       | Data | 15/01/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Restaura a configuração de layout default do browser                              |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|19/01/23| Cirilo R.| Melhoria para permitir configurações default personalizadas            |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+User Function CXBrRsCfg(oBrw	,;	//01 oBrw
+						lMBrw	,;	//02 lFwMBrowse
+						bCfgCst	);	//03 bloco de configuração customizado!
+							AS Logical
+
+	//Declaracao de variaveis----------------------------------------------------------------------
+	Local aOrdCol		AS Array
+	Local nX			AS Integer
+
+	//Parametros da rotina-------------------------------------------------------------------------
+	ParamType 0		VAR oBrw		AS Object
+	ParamType 1		VAR lMBrw		AS Logical		Optional Default .F.
+	ParamType 2		VAR bCfgCst		AS Block		Optional Default NIL
+
+	//---------------------------------------------------------------------------------------------
+	If lMBrw	//Busco os dados do objeto FwMBrowse
+		aBkpSizeCol	:= oBrw:aBkpSizeCol
+	EndIf
+
+	If ValType(aBkpSizeCol) <> 'A'
+		U_CXMsgErro('ERRO Variável aBkpSizeCol NÃO existe.',;
+					'INFORME O SETOR DE T.I.',/*lMsg*/,/*oArea*/)
+		Return .F.
+	ElseIf Len(aBkpSizeCol) <> Len(oBrw:aColumns)	//A informação se perdeu oBrw:aBkpSizeCol, então uso meu backup dos dados originais
+		U_CXMsgErro('ERRO Na quantidade de colunas salvas (aBkpSizeCol) e quantidade real '+;
+					'de colunas (aColumns).',;
+					'INFORME O SETOR DE T.I.',/*lMsg*/,/*oArea*/)
+		Return .F.
+	EndIf
+
+	//Carrega configurações
+	If 	ValType(oBrw:oConfig) <> 'O' .Or. ;
+		ValType(oBrw:oConfig:aWidth) <> 'A'
+
+		oBrw:LoadConfig()	//Carrega configurações salvas no objeto oBrw:oConfig
+	EndIf
+	If ValType(oBrw:oConfig:aWidth) == 'U'
+		oBrw:oConfig:aWidth	:= {}
+	EndIf
+	If ValType(oBrw:oConfig:aOrderColumns) == 'U'
+		oBrw:oConfig:aOrderColumns	:= {}
+	EndIf
+
+	//Ajusto o tamanho do array, elimino colunas removidas ou adiciono se necessário
+	aSize(oBrw:oConfig:aWidth,Len(aBkpSizeCol))
+	aSize(oBrw:oConfig:aOrderColumns,Len(aBkpSizeCol))
+	aOrdCol	:= Array(Len(aBkpSizeCol))
+	For nX := 1 to Len(aBkpSizeCol)
+		oBrw:aColumns[nX]:SetSize(aBkpSizeCol[nX])	//Seta o tamanho das colunas original
+		oBrw:aColumns[nX]:SetDelete(.F.)			//Recupera colunas excluídas
+
+		aOrdCol[nX]	:= nX	//Array com as posições das colunas
+
+		//Guardo as configuração para salvar depois------------------------------------------------
+		If ValType(oBrw:oConfig:aWidth[nX]) == 'U'			//Larguras
+			oBrw:oConfig:aWidth[nX]	:= Array(2)
+		EndIf
+		oBrw:oConfig:aWidth[nX][2]	:= aBkpSizeCol[nX]
+
+		If ValType(oBrw:oConfig:aOrderColumns[nX]) == 'U'	//Posições
+			oBrw:oConfig:aOrderColumns[nX]		:= Array(3)
+		EndIf
+		oBrw:oConfig:aOrderColumns[nX][1]	:= nX
+		oBrw:oConfig:aOrderColumns[nX][2]	:= nX
+	Next
+
+	oBrw:oConfig:aDelColumns	:= {}
+	oBrw:oConfig:cIDSkinSelected := '0001'
+
+	//Recupero informações da fonte caso tenha sido manipulada no bloco bCfgCst
+	If ValType(bCfgCst) == 'B'
+		eVal(bCfgCst,oBrw)	//Configurações personalizadas se houver
+		
+		oBrw:oConfig:cFontBody		:= oBrw:cFontBody
+		oBrw:oConfig:lFontBold		:= oBrw:lFontBold
+		oBrw:oConfig:lFontItalic	:= oBrw:lFontItalic
+		oBrw:oConfig:lFontUnderLine	:= oBrw:lFontUnderLine
+		oBrw:oConfig:nBackColor		:= oBrw:nBackColor
+		oBrw:oConfig:nClrAlterRow	:= oBrw:nClrAlterRow
+		oBrw:oConfig:nFontBody		:= oBrw:nFontBody
+		oBrw:oConfig:nForeColor		:= oBrw:nForeColor
+		oBrw:oConfig:nHeaderColor	:= oBrw:nHeaderColor
+		oBrw:oConfig:nRowHeight		:= oBrw:nRowHeight
+		oBrw:oConfig:nTxtHeaderColor:= oBrw:nTxtHeaderColor
+	EndIf
+
+	oBrw:Save()	//Salva configurações
+	
+	//Força a recriação do objeto para atualizar o layout
+	If .Not. lMBrw
+		oBrw:DeActivate(.T.)
+		oBrw:Activate()
+		If ValType(bCfgCst) == 'B'
+			eVal(bCfgCst,oBrw)	//Configurações personalizadas se houver
+		EndIf
+		oBrw:Refresh()
+	Else
+		//NO FWMBROWSE NÃO FUNCIONA CORRETAMENTE AINDA, SE FIZER UM DEACTIVATE
+		//E DEPOIS ACTIVATE ELE DUPLICA A BARRA SUPERIOR
+	EndIf
+
+Return .T.
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| CXBrSvCfg                       | Autor | Cirilo Rocha       | Data | 15/01/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Salva a configuração de layout atual do browser (configurado pelo usuário com o   |##
+//##|        |  mouse mesmo, posições e tamanhos das colunas)                                    |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+User Function CXBrSvCfg(oBrw)	//01 oBrw
+	
+	//Declaracao de variaveis----------------------------------------------------------------------
+	Local aColOrd	:= {}		AS Array
+	Local aColDel				AS Array
+	Local aColSize				AS Array
+	Local nX					AS Integer
+	Local nCol					AS Integer
+	Local nOrdem				AS Integer
+	
+	//Parametros da rotina-------------------------------------------------------------------------
+	ParamType 0		VAR oBrw		AS Object
+
+	//---------------------------------------------------------------------------------------------
+	If 	ValType(oBrw:oConfig) <> 'O' .Or. ;
+		ValType(oBrw:oConfig:aWidth) <> 'A'
+
+		oBrw:LoadConfig()	//Carrega configurações salvas no objeto oBrw:oConfig
+	EndIf
+	//Salva tamanho das colunas da tela------------------------------------------------------------
+	aColSize	:= oBrw:oBrowse:GetColumnSize()
+	If ValType(oBrw:oConfig:aWidth) == 'U'
+		oBrw:oConfig:aWidth	:= {}
+	EndIf
+	//Ajusto o tamanho do array, elimino colunas removidas ou adiciono se necessário
+	aSize(oBrw:oConfig:aWidth,Len(aColSize))
+	For nX := 1 to Len(aColSize)
+		If ValType(oBrw:oConfig:aWidth[nX]) == 'U'
+			oBrw:oConfig:aWidth[nX]	:= Array(2)
+		EndIf
+		oBrw:oConfig:aWidth[nX][2]	:= aColSize[nX]
+	Next
+	//Salva ordem das colunas----------------------------------------------------------------------
+	oBrw:oBrowse:ColOrder(aColOrd)
+	If ValType(oBrw:oConfig:aOrderColumns) == 'U'
+		oBrw:oConfig:aOrderColumns	:= {}
+	EndIf
+	aColDel		:= oBrw:oConfig:aDelColumns
+	If ValType(aColDel) == 'U'
+		aColDel	:= {}
+	EndIf
+	//Ajusto o tamanho do array, elimino colunas removidas ou adiciono se necessário
+	aSize(oBrw:oConfig:aOrderColumns,Len(oBrw:aColumns))
+	nCol	:= 1
+	For nX := 1 to Len(oBrw:aColumns)
+		If aScan(aColDel,{|x| x[2] == nX } ) == 0	//Não está nas colunas deletadas
+			nOrdem	:= aColOrd[nCol]
+			nCol++
+		Else	//Se deletado preciso salvar na posição da coluna mesmo
+			nOrdem	:= nX
+		EndIf
+		If ValType(oBrw:oConfig:aOrderColumns[nX]) == 'U'
+			oBrw:oConfig:aOrderColumns[nX]		:= Array(3)
+			oBrw:oConfig:aOrderColumns[nX][1]	:= nX
+		EndIf
+		oBrw:oConfig:aOrderColumns[nX][2]	:= nOrdem
+	Next
+
+	oBrw:Save()	//Salva configurações
+
+Return
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| CXBrRtCfg                       | Autor | Cirilo Rocha       | Data | 16/01/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Botões para serem usados no aRotina de um FWmBrowse, disponibilizando os botões de|##
+//##|        |  configuração                                                                     |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+User Function CXBrRtCfg(cVar);	//01 cVar
+							AS Array
+
+	//Declaracao de variaveis----------------------------------------------------------------------
+	Local aSubMenu	:= {}			AS Array
+
+	//Parametros da rotina-------------------------------------------------------------------------
+	ParamType 0		VAR cVar		AS Character	Optional Default 'oMBrw'
+	
+	aAdd(aSubMenu, {'Config. Layout'	,cVar+':Config()'			, 0, nOPC_VISUAL})	//01
+//	aAdd(aSubMenu, {'Redefine Layout'	,'U_CXBrRsCfg('+cVar+',.T.)', 0, nOPC_VISUAL})	//02
+	//NO FWMBROWSE NÃO FUNCIONA CORRETAMENTE AINDA, SE FIZER UM DEACTIVATE
+	// E DEPOIS ACTIVATE ELE DUPLICA A BARRA SUPERIOR
+	aAdd(aSubMenu, {'Salva Layout'		,'U_CXBrSvCfg('+cVar+')'	, 0, nOPC_VISUAL})	//03
+
+Return {'Layout'		,aSubMenu, 0, nOPC_VISUAL}
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| CXBrCpCol                       | Autor | Cirilo Rocha       | Data | 19/01/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Copiar o conteúdo da coluna para a área de transferência / ClipBoard do windows   |##
+//##|        | O componente padrão não faz esse tratamento                                       |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+User Function CXBrCpCol(oBrw)
+
+	//Declaracao de variaveis----------------------------------------------------------------------
+	Local oColumn	AS Object
+	Local uTexto	AS Variant
+
+	oColumn	:= oBrw:GetColumn()
+	If 	ValType(oColumn) == 'O'
+
+		uTexto	:= eVal(oColumn:bData)
+		If ValType(uTexto) == 'N'
+			uTexto	:= Transform(uTexto,oColumn:xPicture)
+		ElseIf ValType(uTexto) == 'D'
+			uTexto	:= DtoC(uTexto)
+		EndIf
+		CopyToClipBoard(uTexto)
+	EndIf
+
+Return
+
+
