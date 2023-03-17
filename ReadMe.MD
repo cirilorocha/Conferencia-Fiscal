@@ -15,6 +15,15 @@ O processo também possui registro de auditoria de qual usuário e quando fez a 
 
 O processo de visualização de XML e PDF pode ser baseado na rotina padrão para anexar arquivos do sistema **Conhecimento**, ou de um *diretório* pré-determinado em _**rede**_ ou no _**servidor**_, ou ainda via consulta de **WebService**. Caso não seja encontrado o arquivo PDF correspondente ao documento existe a possibilidade de impressão de NF-e ou CT-e a partir do XML pelo próprio sistema.
 
+O browse principal é montado usando um FWMBrowse usando uma tabela temporária populada a partir de uma query. O objeto foi cutomizado (tCXMBrowse) para permitir a fácil reutilização dos recursos de filtro, pesquisa e montagem automatizados, porque quando é usada uma tabela temporária o objeto padrão não monta nada desses recursos de forma nativa, todos precisam ser alimentados manualmente, com a customização ela já faz tudo isso de forma automática.
+
+A tela principal é um objeto MVC montado a partir dos dados da tabela temporária, consistindo de 4 sub-componentes:
+
+* Cabeçalho (SF1) [PAI]
+* Fornecedor/Cliente (SA2/SA2) [PAI]
+* Grid Itens (SD1) [FILHO]
+* Livros Fiscais (SFT) [NETO]
+
 **Da forma que está atualmente ainda precisa de alguns retoques para funcione em qualquer ambiente, além do CX-Lib-Core que ainda vou publicar aqui no GitHub**
 
 ## Browser Principal
@@ -40,8 +49,8 @@ Permite uma fácil acesso através dos mesmos atalhos de teclado (*alt+x* ou *F#
 
 ### PENDÊNCIAS (TODO)
 
- - [ ] Converter CXPergunte para ParamBox
- - [ ] Adicionar botão para acessar os arquivos anexados (MsDocument)
+ - [X] Converter CXPergunte para ParamBox
+ - [X] Adicionar botão para acessar os arquivos anexados (MsDocument)
  - [ ] Implementar restrição por filial do usuário
  - [ ] Função busca XML como exemplo
  - [ ] Função busca PDF como exemplo

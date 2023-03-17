@@ -18,6 +18,8 @@
 //##|03/03/23| Cirilo R.| Consegui colocar uma enchoice na SFT                                   |##
 //##|        |          | Adicionados campo natureza                                             |##
 //##|08/03/23| Cirilo R.| Tratamento para dados sensíveis                                        |##
+//##|16/03/23| Cirilo R.| Conversão para ParamBox                                                |##
+//##|        |          | Adicionado botão conhecimento (MPDocument)                             |##
 //##|        |          |                                                                        |##
 //##|        |          |                                                                        |##
 //##+========+==========+========================================================================+##
@@ -42,7 +44,7 @@ User Function RFISA03()
 	
 	//Declaracao de variaveis----------------------------------------------------------------------
 	Local aCpoSub									AS Array
-	Local cPerg			:= 'RFISA03'				AS Character
+	Local aParamBox		:= {}						AS Array
 	Local nX										AS Numeric
     
 	Private aArqTmp		:= {}						AS Array
@@ -100,13 +102,13 @@ User Function RFISA03()
 	cMsg		:= IIf(Type('cMsg')<>'C','',cMsg)
 
 	//---------------------------------------------------------------------------------------------
-	U_CXPergunta({	{'Filial De'		,'C', FWSizeFilial(), 0,,'XM0',,,,,''  }, ;
-					{'Filial Até'		,'C', FWSizeFilial(), 0,,'XM0',,,,,'99'}, ;
-					{'Dt Lanç. De'		,'D', 08, 0,,,,,,,'01/01/80'}, ;
-					{'Dt Lanç. Até'		,'D', 08, 0,,,,,,,'01/01/40'}, ;
-					{'Apenas Não Conf.'	,'N', 01, 0,,,'C', {'Sim','Não'}, 1}},cPerg)
-	
-	If .Not. Pergunte ( cPerg , .T. , U_CXTxtMsg()+'Informe os filtros' )
+	aAdd(aParamBox,{1,'Filial De' 		, ' ',,,'XM0',,020,.F.})
+	aAdd(aParamBox,{1,'Filial Até' 		,'ZZ',,,'XM0',,020,.T.})
+	aAdd(aParamBox,{1,'Dt. Lanç. De' 	,CtoD("01/01/08"),,,,,060,.T.})
+	aAdd(aParamBox,{1,'Dt. Lanç. Até' 	,CtoD("01/01/40"),,,,,060,.T.})
+	aAdd(aParamBox,{2,'Apenas Não Conf.',1,{'Sim','Não'},060,,.T.})
+
+	If .Not. ParamBox(aParamBox,U_CXTxtMsg()+'Informe os parâmetros filtro')
 		Return
 	EndIf
 
@@ -132,6 +134,7 @@ User Function RFISA03()
 	aAdd(aXRotina,{ "Abrir &XML (F6)"		,{|| VisXML() }					,,nOPC_VISUAL , VK_F6	,.T.})
 	aAdd(aXRotina,{ "Abrir &PDF (F7)"		,{|| VisPDF() }					,,nOPC_VISUAL , VK_F7	,.T.})
 	aAdd(aXRotina,{ "&Auditoria (F8)"		,{|| Auditoria() }				,,nOPC_VISUAL , VK_F8	,.T.})
+	aAdd(aXRotina,{ "C&onhecimento"			,{|| Conhecimento() }			,,nOPC_VISUAL , 		,.T.})
 
 	aAdd(aMenuObs,{"Item &SC"		,{|| ObsSC7(nOP_OBSSC,.F.) }			,,nOPC_VISUAL})
 	aAdd(aMenuObs,{"Item &PC"		,{|| ObsSC7(nOP_OBSCAB,.F.) }			,,nOPC_VISUAL})
@@ -230,7 +233,9 @@ Static Function TelaConferencia()
 	// ESTIVER VISÍVEL NA TELA O SISTEMA APRESENTA UM ERRO LOG AO ACIONAR A TECLA DE ATALHO
 	SetKey(VK_F3,{|| TelaObs() })
 	For nX := 1 to Len(aXRotina)
-		If aXRotina[nX][nRX_VIEW]
+		If 	aXRotina[nX][nRX_VIEW] .And. ;
+			aXRotina[nX][nRX_KEY] <> NIL
+
 			SetKey(aXRotina[nX][nRX_KEY],aXRotina[nX][bRX_EXEC])
 		EndIf
 	Next
@@ -1659,7 +1664,7 @@ Static Function CarregaDados(aFields);	//01 aFields
 			If aFields[nX][MODEL_FIELD_IDFIELD] == 'F1_YUSRCFG'
 				aTail(aDados)	:= U_RFISA03A(aTail(aDados))
 			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'F1_YUSRLAN'
-				aTail(aDados)	:= aTail(aDados)+'-'+RTrim(U_CXFieldGet('USR_NOME',cAlias))
+				aTail(aDados)	:= aTail(aDados)+'-'+IIF(lOfuscar,Replicate('*',35),RTrim(U_CXFieldGet('USR_NOME',cAlias)))
 			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'D1_COD'
 				aTail(aDados)	:= RTrim(aTail(aDados))+'-'+IIF(lOfuscar,Replicate('*',FWTamSX3('B1_DESC')[1]),RTrim(U_CXFieldGet('B1_DESC',cAlias)))
 			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'A2_NOME'
@@ -1830,5 +1835,33 @@ Static Function AtualizaTelaMVC()
 	If ValType(oView) == 'O'
 		oView:Refresh()
 	EndIf
+
+Return
+
+//##################################################################################################
+//##+========+=================================+=======+====================+======+=============+##
+//##|Programa| Conhecimento                    | Autor | Cirilo Rocha       | Data | 16/03/2023  |##
+//##+========+=================================+=======+====================+======+=============+##
+//##|Desc.   | Chama a tela padrão de Conhecimento (MPDocument)                                  |##
+//##+========+==========+========================================================================+##
+//##|  DATA  | ANALISTA | MANUTENÇÃO EFETUADA                                                    |##
+//##+========+==========+========================================================================+##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##|        |          |                                                                        |##
+//##+========+==========+========================================================================+##
+//##################################################################################################
+Static Function Conhecimento()
+
+	//Declaracao de variaveis----------------------------------------------------------------------
+	Private INCLUI	:= .F.		AS Logical
+	Private ALTERA	:= .F.		AS Logical
+	Private aRotina	:= {}		AS Array
+
+	//---------------------------------------------------------------------------------------------
+	SF1->(dbGoTo((cAlias)->F1_RECNO))
+	aAdd(aRotina,{,,,nOPC_VISUAL})	//Para forçar ficar somente visualização!
+
+	MPDocument('SF1',SF1->(Recno()),1)
 
 Return
