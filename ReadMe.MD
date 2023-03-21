@@ -55,7 +55,7 @@ Permite uma fácil acesso através dos mesmos atalhos de teclado (*alt+x* ou *F#
 
  - [X] Converter CXPergunte para ParamBox
  - [X] Adicionar botão para acessar os arquivos anexados (MsDocument)
- - [ ] Implementar restrição por filial do usuário
+ - [X] Implementar restrição por filial do usuário
  - [X] Função busca XML como exemplo
  - [X] Função busca PDF como exemplo
  - [X] Arquivos de Dicionário

@@ -3,6 +3,7 @@
 #INCLUDE 'Totvs.ch'
 #INCLUDE 'ParmType.ch'
 #INCLUDE 'FWMVCDEF.CH'
+#INCLUDE 'FWCommand.CH' 
 #INCLUDE 'CXInclude.ch'
 #include "CXnOpc.ch"
 #include "CXaRotina.ch"
@@ -20,6 +21,8 @@
 //##|08/03/23| Cirilo R.| Tratamento para dados sensÌveis                                        |##
 //##|16/03/23| Cirilo R.| Convers„o para ParamBox                                                |##
 //##|        |          | Adicionado bot„o conhecimento (MPDocument)                             |##
+//##|21/03/23| Cirilo R.| Filtro das filiais de acesso                                           |##
+//##|        |          | Melhorada visualizaÁ„o do campo filial                                 |##
 //##|        |          |                                                                        |##
 //##|        |          |                                                                        |##
 //##+========+==========+========================================================================+##
@@ -36,6 +39,8 @@ Static cST_NAOCONFE		:= 'E'										AS Character
 
 Static lRCOMF30		:= ExistBlock('RCOMF30')						AS Logical
 Static lOfuscar		:= .Not. ( VerSenha(192) .And. VerSenha(193) )	AS Logical
+
+Static jCacheSM0	:= JsonObject():New()							AS Json
 
 #Define cAlias	oBrw:Alias()	//Para simplificar o fonte
 
@@ -156,7 +161,7 @@ User Function RFISA03()
 	oBrw:AddLegend( ".Not.Empty(F1_YUSRCFG)", "BR_VERMELHO"	,"Conferido"	)
 
 	oBrw:CXSetQuery(RetQuery())
-	oBrw:CXBindParam({cFilDe,cFilAte,DtoS(dLancDe),DtoS(dLancAte)})
+	oBrw:CXBindParam({StrTokArr2(fValidFil(),'/',.F.),cFilDe,cFilAte,DtoS(dLancDe),DtoS(dLancAte)})
 	ProcCol(oBrw)	//Processa coluna F1_TIPO porque n„o tem combo no SX3
 	oBrw:CXSetQueryIndex({'F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+D1_COD+D1_ITEM'})
 	//oBrw:disableDetails()
@@ -250,6 +255,11 @@ Static Function TelaConferencia()
 	If oModelCache == NIL
 		oModelCache := FwLoadModel("RFISA03")
 	EndIf
+
+	//Preciso forÁar o posicionamento correto da filial!
+	cFilAnt	:= (cAlias)->F1_FILIAL
+	FWSM0Util():setSM0PositionBycFilAnt()
+
 	FWExecView('ConferÍncia',"RFISA03",,,,,,aEnableButtons,,,,oModelCache)
 	oModelCache:DeActivate()	//Apenas desativo o objeto, se abrir novamente o cache fica r·pido
 
@@ -354,6 +364,7 @@ Static Function RetQuery()	AS Character
 	cQuery	+= ") CP "+CRLF
 	//Filtros
 	cQuery	+= "WHERE SD1.D_E_L_E_T_ = '' "+CRLF
+	cQuery	+= "	AND D1_FILIAL IN ( ? ) "+CRLF
 	cQuery	+= "	AND D1_FILIAL BETWEEN ? AND ? "+CRLF
 	cQuery	+= "	AND F1_YDTLAN BETWEEN ? AND ? "+CRLF
 	If lSoPend
@@ -379,10 +390,29 @@ Return cQuery
 Static Function ProcCol(oBrw)
 	
 	//Declaracao de variaveis----------------------------------------------------------------------
+	Local aSM0				AS Array
 	Local nPos				AS Numeric
 	Local nTamCpo			AS Numeric
+	Local nX				AS Numeric
 
-	//O campo F1_TIPO n„o tem combo cadastrado, ent„o alimento manualmente aqui
+	//PrÈ-Carrego dados do SM0---------------------------------------------------------------------
+	aSM0	:= FWLoadSM0() //Carrega informacoes das empresas -> posicoes #include 'FWCommand.CH'
+	For nX := 1 To Len( aSM0 )
+		If	aSM0[nX][SM0_GRPEMP] == cEmpAnt
+			jCacheSM0[aSM0[nX][SM0_CODFIL]]	:= RTrim(aSM0[nX][SM0_NOMRED])
+		Endif
+	Next	
+
+	//Mostrar a descriÁ„o da filial----------------------------------------------------------------
+	nPos		:= aScan(oBrw:aColumns,{|x| x:GetID() == 'F1_FILIAL' })
+	If 	nPos > 0
+
+		nTamCpo	:= 20
+		oBrw:aColumns[nPos]:SetData( {|| F1_FILIAL+'-'+jCacheSM0[F1_FILIAL] } )
+		oBrw:aColumns[nPos]:SetSize( nTamCpo )
+	EndIf
+
+	//O campo F1_TIPO n„o tem combo cadastrado, ent„o alimento manualmente aqui--------------------
 	nPos		:= aScan(oBrw:aColumns,{|x| x:GetID() == 'F1_TIPO' })
 	If 	nPos > 0 .And. ;
 		Len(oBrw:aColumns[nPos]:GetOptions()) == 0
@@ -395,7 +425,7 @@ Static Function ProcCol(oBrw)
 		oBrw:aColumns[nPos]:SetSize( nTamCpo )
 	EndIf
 
-	//Mostro o campo de forma mais amig·vel ao usu·rio
+	//Mostro o campo de forma mais amig·vel ao usu·rio---------------------------------------------
 	nPos		:= aScan(oBrw:aColumns,{|x| x:GetID() == 'F1_YUSRCFG' })
 	If 	nPos > 0
 
@@ -1340,6 +1370,7 @@ Static Function ModelDef();
 	//Ajusto manualmente o tamanho destes campos para exibiÁ„o
 	oStruSF1:SetProperty('F1_YUSRLAN' 	, MVC_MODEL_TAMANHO,35)
 	oStruSF1:SetProperty('F1_YUSRCFG' 	, MVC_MODEL_TAMANHO,35)
+	oStruSF1:SetProperty('F1_FILIAL' 	, MVC_MODEL_TAMANHO,20)
 	oStruSD1:SetProperty('D1_COD'	 	, MVC_MODEL_TAMANHO,35)
 
 	//Desmarco os campos obrigatÛrios, È somente visualizaÁ„o N√O precisa
@@ -1525,6 +1556,26 @@ Static Function ViewDef();
 	//Para ganhar um pouco de espaÁo, estou colocando no nome do fornecedor
 	oStruSF1:RemoveField('F1_FORNECE')	//Remove campo da estrutura
 	oStruSF1:RemoveField('F1_LOJA')		//Remove campo da estrutura
+	oStruSF1:RemoveField('F1_SERIE')	//Remove campo da estrutura
+	oStruSF1:SetProperty('F1_DOC'	, MVC_VIEW_TITULO,'N˙mero-SÈrie')
+
+	oStruSF1:AddField(	'F1_FILIAL'			,;  //[01] C Nome do Campo (X3_CAMPO)
+						'01'        		,;  //[02] C Ordem (X3_ORDEM)
+						'Filial'			,;  //[03] C Titulo do campo (X3Titulo())
+						'Filial'			,;  //[04] C DescriÁ„o do campo (X3Descric())
+						/*aHelp*/			,;  //[05] A Array com Help
+						'GET'				,;  //[06] C Tipo do campo (**)
+						'@!'				,;  //[07] C Picture (X3_PICTURE)
+						/*bPicVar*/ 		,;  //[08] B Bloco de Picture Var (B.E. X3_PICTVAR)
+						/*cF3*/				,;  //[09] C Consulta F3 (X3_F3)
+						.F.					,;  //[10] L Indica se o campo È edit·vel (X3_VISUAL<>V)
+						/*cFolder*/    		,;  //[11] C Pasta do campo (X3_FOLDER)
+						/*cAgrupa*/    		,;  //[12] C Agrupamento do campo (X3_AGRUP)
+						/*aCombo*/  		,;  //[13] A Lista de valores permitido do campo (X3_COMBO) 
+						/*nMaxComb*/  		,;  //[14] N Tamanho Maximo da maior opÁ„o do combo
+						/*cInicBrw*/  		,;  //[15] C Inicializador de Browse (X3_INIBRW)
+						.T.					,;  //[16] L Indica se o campo È virtual (X3_CONTEXT=V)
+						/*cPictVar*/		)   //[17] C Picture Vari·vel
 
 	//Monta o combo do tipo de NF, no padr„o n„o existe combo!
 	oStruSF1:SetProperty('F1_TIPO' , MVC_VIEW_COMBOBOX,U_CXTipoNF(4))
@@ -1532,22 +1583,22 @@ Static Function ViewDef();
 	oStruSF1:SetProperty('F1_TIPO' , MVC_VIEW_TITULO,FwX3Titulo('F1_TIPO'))
 	
 	oStruSF1:AddField(	'F1_NATUREZ'		,;  //[01] C Nome do Campo (X3_CAMPO)
-						'07'        		,;  //[02] C Ordem (X3_ORDEM)
+						'07'				,;  //[02] C Ordem (X3_ORDEM)
 						'Natureza Financeira',;  //[03] C Titulo do campo (X3Titulo())
 						'Natureza Financeira',;  //[04] C DescriÁ„o do campo (X3Descric())
 						/*aHelp*/			,;  //[05] A Array com Help
-						'GET'		   		,;  //[06] C Tipo do campo (**)
-						'@!'        		,;  //[07] C Picture (X3_PICTURE)
+						'GET'				,;  //[06] C Tipo do campo (**)
+						'@!'				,;  //[07] C Picture (X3_PICTURE)
 						/*bPicVar*/ 		,;  //[08] B Bloco de Picture Var (B.E. X3_PICTVAR)
-						/*cF3*/        		,;  //[09] C Consulta F3 (X3_F3)
-						.F.         		,;  //[10] L Indica se o campo È edit·vel (X3_VISUAL<>V)
-						/*cFolder*/    		,;  //[11] C Pasta do campo (X3_FOLDER)
-						/*cAgrupa*/    		,;  //[12] C Agrupamento do campo (X3_AGRUP)
-						/*aCombo*/  		,;  //[13] A Lista de valores permitido do campo (X3_COMBO) 
-						/*nMaxComb*/  		,;  //[14] N Tamanho Maximo da maior opÁ„o do combo
-						/*cInicBrw*/  		,;  //[15] C Inicializador de Browse (X3_INIBRW)
-						.T.         		,;  //[16] L Indica se o campo È virtual (X3_CONTEXT=V)
-						/*cPictVar*/   		)   //[17] C Picture Vari·vel
+						/*cF3*/				,;  //[09] C Consulta F3 (X3_F3)
+						.F.					,;  //[10] L Indica se o campo È edit·vel (X3_VISUAL<>V)
+						/*cFolder*/			,;  //[11] C Pasta do campo (X3_FOLDER)
+						/*cAgrupa*/			,;  //[12] C Agrupamento do campo (X3_AGRUP)
+						/*aCombo*/			,;  //[13] A Lista de valores permitido do campo (X3_COMBO) 
+						/*nMaxComb*/		,;  //[14] N Tamanho Maximo da maior opÁ„o do combo
+						/*cInicBrw*/		,;  //[15] C Inicializador de Browse (X3_INIBRW)
+						.T.					,;  //[16] L Indica se o campo È virtual (X3_CONTEXT=V)
+						/*cPictVar*/		)   //[17] C Picture Vari·vel
 
 	oStruSFT:SetProperty('FT_BASEPIS', MVC_VIEW_TITULO,'Base de C·lculo Pis/Cofins')
 	oStruSFT:SetProperty('FT_CSTPIS', MVC_VIEW_TITULO,'Cod.Sit.Trib. Pis/Cofins')
@@ -1702,7 +1753,11 @@ Static Function CarregaDados(aFields);	//01 aFields
 			If aFields[nX][MODEL_FIELD_IDFIELD] == 'F1_YUSRCFG'
 				aTail(aDados)	:= U_RFISA03A(aTail(aDados))
 			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'F1_YUSRLAN'
-				aTail(aDados)	:= aTail(aDados)+'-'+IIF(lOfuscar,Replicate('*',35),RTrim(U_CXFieldGet('USR_NOME',cAlias)))
+				aTail(aDados)	+= '-'+IIF(lOfuscar,Replicate('*',35),RTrim(U_CXFieldGet('USR_NOME',cAlias)))
+			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'F1_DOC'
+				aTail(aDados)	+= '-'+U_CXFieldGet('F1_SERIE',cAlias)
+			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'F1_FILIAL'
+				aTail(aDados)	+= '-'+jCacheSM0[aTail(aDados)]
 			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'D1_COD'
 				aTail(aDados)	:= RTrim(aTail(aDados))+'-'+IIF(lOfuscar,Replicate('*',FWTamSX3('B1_DESC')[1]),RTrim(U_CXFieldGet('B1_DESC',cAlias)))
 			ElseIf aFields[nX][MODEL_FIELD_IDFIELD] == 'A2_NOME'
@@ -1892,15 +1947,25 @@ Return
 Static Function Conhecimento()
 
 	//Declaracao de variaveis----------------------------------------------------------------------
+	Local oArea					AS Object
+
 	Private INCLUI	:= .F.		AS Logical
 	Private ALTERA	:= .F.		AS Logical
 	Private aRotina	:= {}		AS Array
 
 	//---------------------------------------------------------------------------------------------
+	oArea	:= tCtrlAlias():GetArea({'#KEY'})
+
 	SF1->(dbGoTo((cAlias)->F1_RECNO))
+	cFilAnt	:= SF1->F1_FILIAL
+	FWSM0Util():setSM0PositionBycFilAnt()
 	aAdd(aRotina,{,,,nOPC_VISUAL})	//Para forÁar ficar somente visualizaÁ„o!
 
 	MPDocument('SF1',SF1->(Recno()),1)
+
+	oArea:RestArea()		//Restaura area
+	oArea:Destroy()
+	FWFreeVar(oArea)
 
 Return
 
@@ -2284,692 +2349,3 @@ begincontent var cXMLCTEDemo
 endcontent
 
 Return cXMLCTEDemo
-
-#INCLUDE "CXTeste.ch" //Strings STR para testes em fontes padr„o
-Static	__cNomeFuncao	:= 'PMSXFUN' //Nome da funÁ„o para obter os textos STR
-Static Function ParamBox(aParametros,cTitle,aRet,bOk,aButtons,lCentered,nPosx,nPosy, oDlgWizard, cLoad, lCanSave,lUserSave)
-
-Local nx
-Local oDlg
-Local cPath     := ""
-Local oPanel
-Local oPanelB
-Local cTextSay
-Local lOk			:= .F.
-Local nLinha		:= 8
-Local cArquivos := ""
-Local nBottom
-Local oFntVerdana
-Local cOpcoes	:=	""
-Local lWizard  := .F.
-Local cBlkWhen2
-Local nPos
-Local cRotina
-Local cAux
-Local aOpcoes
-Local cAlias1
-Local cServidor		:= ".T."
-Local cWhen	:= ""
-Local cCodUsr := ""
-Local lGrpAdm := .F.
-Local loMainWnd := .F.
-Local cFilAN7	:= xFilial("AN7")
-
-DEFAULT bOk			:= {|| (.T.)}
-DEFAULT aButtons	:= {}
-DEFAULT lCentered	:= .T.
-DEFAULT nPosX		:= 0
-DEFAULT nPosY		:= 0
-DEFAULT cLoad     := ProcName(1)
-DEFAULT lCanSave	:= .T.
-DEFAULT lUserSave	:= .F.
-DEFAULT aButtons	:= {}
-
-cRotina := PADR(cLoad,10)
-
-If Type("cCadastro") == "U"
-	cCadastro := ""
-EndIf
-
-If !lCanSave
-	lUserSave	:= .F.
-	cLoad := "99_NOSAVE_"
-Else
-	//Se nao esta bloqueado
-	If ParamLoad(cLoad,aParametros,0,"1")== "2"
-		lUserSave:= .F.
-	//Se o usuario pode ter a sua propria configuracao
-	ElseIf lUserSave
-		cLoad	:=	__cUserID+"_"+cLoad
-	Endif
-Endif
-
-DEFINE FONT oFntVerdana NAME "Verdana" SIZE 0, -10 BOLD
-
-If oDlgWizard == NIL
-
-	If Type("oMainWnd") == "U"
-		DEFINE MSDIALOG oDlg TITLE cCadastro+" - "+cTitle FROM nPosX,nPosY TO nPosX+300,nPosY+445 Pixel
-		loMainWnd := .F.
-	Else
-		If IsInCallStack("Pms320Per") .OR. IsInCallStack("P320ExPer")
-			DEFINE MSDIALOG oDlg TITLE cCadastro+" - "+cTitle FROM nPosX,nPosY TO nPosX+300,nPosY+500 OF oMainWnd Pixel
-		Else
-			DEFINE MSDIALOG oDlg TITLE cCadastro+" - "+cTitle FROM nPosX,nPosY TO nPosX+300,nPosY+445 OF oMainWnd Pixel
-		EndIf
-		loMainWnd := .T.
-	EndIF
-	lWizard := .F.
-Else
-	oDlg := oDlgWizard
-	lWizard := .T.
-EndIf
-
-oPanel := TScrollBox():New( oDlg, 8,10,104,203)
-oPanel:Align := CONTROL_ALIGN_ALLCLIENT
-
-For nx := 1 to Len(aParametros)
-	Do Case
-		Case aParametros[nx,1]==1 // SAY + GET
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3],Iif(Len(aParametros[nx])>9,aParametros[nx,10],.F.))
-			EndIf
-			if aParametros[nx,9] // Campo Obrigatorio
-				cTextSay :="{||'<b>"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+ "<font color=red size=2 face=verdana,helvetica>*</font></b>"+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay)  , oPanel , ,,,,,.T.,CLR_BLACK,,100,  ,,,,,,.T.)
-			else
-				cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,100,,,,,,)
-			endif	
-			cWhen	:= Iif(Empty(aParametros[nx,7]),".T.",aParametros[nx,7])
-			cValid	:=Iif(Empty(aParametros[nx,5]),".T.",aParametros[nx,5])
-			cF3		:=Iif(Empty(aParametros[nx,6]),NIL,aParametros[nx,6])
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			cBlKVld := "{|| "+cValid+"}"
-			cBlKWhen := "{|| "+cWhen+"}"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			//*****************************************************
-			// Auto Ajusta da Get para Campos Caracter e Numerico *
-			// Somente para o Modulo PCO - Acacio Egas            *
-			//*****************************************************
-			If Type("cModulo")=="C" .and. cModulo=="PCO" .and. !lWizard
-				cType := Type("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				If cType $ "C"
-					nWidth	:= CalcFieldSize(cType,Len(aParametros[nx,3]),,aParametros[nx,4],"") + 10 + If(!Empty(cF3),10,0)
-				ElseIf cType $ "N"
-					nWidth	:= CalcFieldSize(cType,,,aParametros[nx,4],"") + 10
-				Else
-					nWidth	:= aParametros[nx,8]
-				EndIf
-			Else
-				nWidth	:= aParametros[nx,8]
-			EndIf
-			// 'If' para corrigir um problema do campo get quando possui F3 (Lupa) em um panel do wizard. Quando campo menor que 50, a lupa some.
-			If lWizard
-				IF Type("nWidth")<> "U"
-					TGet():New( nLinha,100,&cBlKGet,oPanel,If(nWidth<30,30,nWidth),,aParametros[nx,4], &(cBlkVld),,,, .T.,, .T.,, .T., &(cBlkWhen), .F., .F.,, .F., .F. ,cF3,"MV_PAR"+AllTrim(STRZERO(nx,2,0)),,,,.T.)
-				Else
-					cType := ValType(aRet[nx])
-					nWidth := ParBGetSize(cType,aParametros,cF3,nx)
-					TGet():New( nLinha,100,&cBlKGet,oPanel,nWidth,,aParametros[nx,4], &(cBlkVld),,,, .T.,, .T.,, .T., &(cBlkWhen), .F., .F.,, .F., .F. ,cF3,"MV_PAR"+AllTrim(STRZERO(nx,2,0)),,,,.T.)
-				Endif
-			Else
-				TGet():New( nLinha,100,&cBlKGet,oPanel,nWidth,,aParametros[nx,4], &(cBlkVld),,,, .T.,, .T.,, .T., &(cBlkWhen), .F., .F.,, .F., .F. ,cF3,"MV_PAR"+AllTrim(STRZERO(nx,2,0)),,,,.T.)
-			Endif
-		Case aParametros[nx,1]==2 // SAY + COMBO
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			EndIf
-			
-    		if aParametros[nx,7] // Campo Obrigatorio
-				cTextSay :="{||'<b>"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+ "<font color=red size=2 face=verdana,helvetica>*</font></b>"+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay)  , oPanel , ,,,,,.T.,CLR_BLACK,,100,  ,,,,,,.T.)
-			else
-				cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,100,,,,,,)
-			endif	
-			
-			cWhen   := ".T."
-			If Len(aParametros[nx]) > 7
-				If aParametros[nx,8] != NIL .And. ValType(aParametros[nx,8])=="L"
-					cWhen	:=If(aParametros[nx,8],".T.",".F.")
-				Else
-					cWhen	:= Iif(Len(aParametros[nx]) < 8 .Or. Empty(aParametros[nx,8]) .Or. aParametros[nx,8] == Nil,".T.",aParametros[nx,8])
-				EndIf
-			EndIf
-			cValid	:=Iif(Empty(aParametros[nx,6]),".T.",aParametros[nx,6])
-			cBlKVld := "{|| "+cValid+"}"
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-         Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			cBlkWhen := "{|| "+cWhen+" }"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			TComboBox():New( nLinha,100, &cBlkGet,aParametros[nx,4], aParametros[nx,5], 10, oPanel, ,,       ,,,.T.,,,.F.,&(cBlkWhen),.T.,,,,"MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-
-		Case aParametros[nx,1]==3 // SAY + RADIO
-			nLinha += 8
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			EndIf
-			cTextSay:= "{||'"+aParametros[nx,2]+" ? "+"'}"
-			TGroup():New( nLinha-8,15, nLinha+(Len(aParametros[nx,4])*9)+7,205,aParametros[nx,2]+ " ? ",oPanel,If(aParametros[nx,7],CLR_HBLUE,CLR_BLACK),,.T.)
-			cWhen   := ".T."
-			If Len(aParametros[nx]) > 7
-				If aParametros[nx,8] != NIL .And. ValType(aParametros[nx,8])=="L"
-					cWhen	:=If(aParametros[nx,8],".T.",".F.")
-				Else
-					cWhen	:= Iif(Len(aParametros[nx]) < 8 .Or. Empty(aParametros[nx,8]) .Or. aParametros[nx,8] == Nil,".T.",aParametros[nx,8])
-				EndIf
-			EndIf
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-            Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			cBlkWhen := "{|| " + cWhen  +  "}"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			TRadMenu():New( nLinha, 30, aParametros[nx,4],&cBlkGet, oPanel,,,,,,,&(cBlkWhen),aParametros[nx,5],9, ,,,.T.)
-			nLinha += (Len(aParametros[nx,4])*10)-3
-
-		Case aParametros[nx,1]==4 // SAY + CheckBox
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			EndIf
-			
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			if aParametros[nx,7] // Campo Obrigatorio
-				cTextSay :="{||'<b>"+STRTRAN(aParametros[nx,2],"'",'"')+"  "+ "<font color=red size=2 face=verdana,helvetica>*</font></b>"+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay)  , oPanel , ,,,,,.T.,CLR_BLACK,,100,  ,,,,,,.T.)
-			else
-				cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+"  "+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,100,,,,,,)
-			endif	
-			cBlkWhen := Iif(Len(aParametros[nx]) > 7 .And. !Empty(aParametros[nx,8]),aParametros[nx,8],"{|| .T. }")
-			If (Len(aParametros[nx]) > 6 .And. aParametros[nx,7]).Or. ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			TCheckBox():New(nLinha,100,aParametros[nx,4], &cBlkGet,oPanel, aParametros[nx,5],10,,,,,,,,.T.,,,&(cBlkWhen))
-
-		Case aParametros[nx,1]==5 // CheckBox Linha Inteira
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			EndIf
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-            Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			cBlkWhen := "{|| .T. }"
-			If (Len(aParametros[nx]) > 6 .And. aParametros[nx,7]) .Or. ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			TCheckBox():New(nLinha,15,aParametros[nx,2], &cBlkGet,oPanel, aParametros[nx,4],10,,,,,,,,.T.,,,&(cBlkWhen))
-
-		Case aParametros[nx,1]==6 // File + Procura de Arquivo
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			EndIf
-			
-			if aParametros[nx,8] // Campo Obrigatorio
-				cTextSay :="{||'<b>"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+ "<font color=red size=2 face=verdana,helvetica>*</font></b>"+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay)  , oPanel , ,,,,,.T.,CLR_BLACK,,100,  ,,,,,,.T.)
-			else
-				cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,100,,,,,,)
-			endif	
-			
-			cWhen	    := Iif(Empty(aParametros[nx,6]),".T.",aParametros[nx,6])
-			cValid	  := Iif(Empty(aParametros[nx,5]),".T.","("+aParametros[nx,5]+").Or.Vazio("+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+")")
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-            Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			cBlKVld   := "{|| " + cValid + "}"
-			cBlKWhen  := "{|| " + cWhen + "}"
-			
-			cArquivos := aParametros[nx,9]
-			If ValType(cArquivos) <> "C"
-				cArquivos := ""
-			EndIf
-			
-			If Len(aParametros[nx]) >= 10
-				cPath := aParametros[nx,10]
-				If ValType(cPath) <> "C"
-					cPath := ""
-				EndIf 
-			EndIf
-
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-
-			If Len(aParametros[nX]) >= 11
-				If ValType(aParametros[nx,11]) <> "N"
-					cOpcoes := AllTrim(Str(GETF_LOCALHARD+GETF_LOCALFLOPPY))
-				Else
-					cOpcoes := AllTrim(Str(aParametros[nx,11]))
-				EndIf
-			Else
-				cOpcoes := AllTrim(Str(GETF_LOCALHARD+GETF_LOCALFLOPPY))
-			EndIf
-
-			If Len(aParametros[nX]) >= 12
-				cServidor := cValToChar(aParametros[nx,12])
-			Else
-				cServidor := ".T." 
-			Endif
-
-			If lWizard
-				cGetfile := "{|| aRet["+AllTrim(STRZERO(nx,2,0))+"] := MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := cGetFile('"+cArquivos+"','"+;
-								STR0176+"',0,'"+cPath+"',.T.,"+cOpcoes+;
-								","+cServidor+")+SPACE(40), If(Empty(MV_PAR"+AllTrim(STRZERO(nx,2,0))+;
-								"), MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := '"+;
-								aParametros[nx,3]+"',)  }"
-		 	Else
-				cGetfile := "{|| MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := cGetFile('"+cArquivos+"','"+;
-								STR0176+"',0,'"+cPath+"',.T.,"+cOpcoes+;
-								","+cServidor+")+SPACE(40), If(Empty(MV_PAR"+AllTrim(STRZERO(nx,2,0))+;
-								"), MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := '"+;
-								aParametros[nx,3]+"',)  }" 
-			EndIf
-
-			TGet():New( nLinha,100 ,&cBlKGet,oPanel,aParametros[nx,7],,aParametros[nx,4], &(cBlkVld),,,, .T.,, .T.,, .T., &(cBlkWhen), .F., .F.,, .F., .F. ,,"MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-			TButton():New( nLinha,100+aParametros[nx,7], STR0175, oPanel,&(cGetFile), 29, 12, , oDlg:oFont, ,.T.,.F.,,.T., ,, .F.)
- 
-		Case aParametros[nx,1]==7 //.And. ! lWizard// Filtro de Arquivos
-			nLinha += 8
-			If !lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,4])
-				SetPrvt("MV_FIL"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_FIL"+AllTrim(STRZERO(nx,2,0))) := MontDescr(aParametros[nx,3],ParamLoad(cLoad,aParametros,nx,aParametros[nx,4]))
-			EndIf
-			TGroup():New( nLinha-8,15, nLinha+40,170,aParametros[nx,2]+ " ? ",oPanel,,,.T.)
-			cWhen   := ".T."
-			If Len(aParametros[nx]) > 4
-				If aParametros[nx,5] != NIL .And. ValType(aParametros[nx,5])=="L"
-					cWhen	:=If(aParametros[nx,5],".T.",".F.")
-				Else
-					cWhen	:= Iif(Len(aParametros[nx]) < 5 .Or. Empty(aParametros[nx,5]) .Or. aParametros[nx,5] == Nil,".T.",aParametros[nx,5])
-				EndIf
-			EndIf
-			cValid	:=".T."
-			If !lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_FIL"+AllTrim(STRZERO(nx,2,0))+","+"MV_FIL"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			Else
-				cBlkGet := "{ | u | If( PCount() == 0, MontDescr('"+aParametros[nx,3]+"',aRet["+AllTrim(STRZERO(nx,2,0))+"]),"+;
-																	" MV_FIL"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-
-			EndIf
-			cBlKVld := "{|| "+cValid+"}"
-			cBlKWhen := "{|| "+cWhen+"}"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			If !lWizard
-				cGetFilter := "{|| MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := BuildExpr('"+aParametros[nx,3]+"',,MV_PAR"+AllTrim(STRZERO(nx,2,0))+"),MV_FIL"+AllTrim(STRZERO(nx,2,0))+":=MontDescr('"+aParametros[nx,3]+"',MV_PAR"+AllTrim(STRZERO(nx,2,0))+") }"
-			Else
-				cGetFilter := "{|| aRet["+AllTrim(STRZERO(nx,2,0))+"] := MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := BuildExpr('"+aParametros[nx,3]+"',,aRet["+AllTrim(STRZERO(nx,2,0))+"]),MV_FIL"+AllTrim(STRZERO(nx,2,0))+":=MontDescr('"+aParametros[nx,3]+"',aRet["+AllTrim(STRZERO(nx,2,0))+"]) }"
-			EndIf
-			TButton():New( nLinha,18, "Editar", oPanel,&(cGetFilter), 35, 14, , oDlg:oFont, ,.T.,.F.,,.T.,&(cBlkWhen),, .F.)
-			TMultiGet():New( nLinha, 55, &cBlKGet,oPanel,109,33,,,,,,.T.,,.T.,&(cBlkWhen),,,.T.,&(cBlkVld),,.T.,.F., )
-			nLinha += 31
-		Case aParametros[nx,1]==8 // SAY + GET PASSWORD
-			If ! lWizard
-				SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-				&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			EndIf
-			if aParametros[nx,9] // Campo Obrigatorio
-				cTextSay :="{||'<b>"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+ "<font color=red size=2 face=verdana,helvetica>*</font></b>"+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay)  , oPanel , ,,,,,.T.,CLR_BLACK,,100,  ,,,,,,.T.)
-			else
-				cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+"'}"
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,100,,,,,,)
-			endif	
-			
-			cWhen	:= Iif(Empty(aParametros[nx,7]),".T.",aParametros[nx,7])
-			cValid	:=Iif(Empty(aParametros[nx,5]),".T.",aParametros[nx,5])
-			cF3		:=Iif(Empty(aParametros[nx,6]),NIL,aParametros[nx,6])
-			If ! lWizard
-				cBlkGet := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-            Else
-				cBlkGet := "{ | u | If( PCount() == 0, "+"aRet["+AllTrim(STRZERO(nx,2,0))+"],"+"aRet["+AllTrim(STRZERO(nx,2,0))+"] := "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			EndIf
-			cBlKVld := "{|| "+cValid+"}"
-			cBlKWhen := "{|| "+cWhen+"}"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			TGet():New( nLinha,100 ,&cBlKGet,oPanel,aParametros[nx,8],,aParametros[nx,4], &(cBlkVld),,,, .T.,, .T.,, .T., &(cBlkWhen), .F., .F.,, .F., .T. ,cF3,"MV_PAR"+AllTrim(STRZERO(nx,2,0)),,,,.T.)
-		Case aParametros[nx,1]==9 // SAY
-            cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+"'}"
-			If aParametros[nx,5]
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,oFntVerdana,,,,.T.,CLR_BLACK,,aParametros[nx,3],aParametros[nx,4],,,,,)
-			Else
-				TSay():New( nLinha, 15 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,aParametros[nx,3],aParametros[nx,4],,,,,)
-			EndIf
-		Case aParametros[nx,1]==10 // Range (fase experimental)
-			nLinha += 8
-			SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-			&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			SetPrvt("MV_RAN"+AllTrim(STRZERO(nx,2,0)))
-			&("MV_RAN"+AllTrim(STRZERO(nx,2,0))) := PMSRangeDesc(	&("MV_PAR"+AllTrim(STRZERO(nx,2,0))),aParametros[nx,7])
-			TGroup():New( nLinha-8,15, nLinha+40,170,STR0382+aParametros[nx,2],oPanel,,,.T.)		//"Range de "
-			If Type(aParametros[nx,8])=="L" .And. !Empty(aParametros[nx,8])
-				cWhen	:= aParametros[nx,8]
-			Else
-				cWhen	:= ".T."
-			EndIf
-			cValid	:=".T."
-			cBlkGet := "{ | u | If( PCount() == 0, "+"MV_RAN"+AllTrim(STRZERO(nx,2,0))+","+"MV_RAN"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			cBlKWhen := "{|| "+cWhen+"}"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			cGetRange := "{|| MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := PmsRange('"+aParametros[nx,2]+"','"+aParametros[nx,4]+"',"+Str(aParametros[nx,5])+",MV_PAR"+AllTrim(STRZERO(nx,2,0))+",'"+aParametros[nx,6]+"',"+Str(aParametros[nx,7])+"),	MV_RAN"+AllTrim(STRZERO(nx,2,0))+" := PMSRangeDesc( MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+Str(aParametros[nx,7])+") }"
-	   		TButton():New( nLinha-2,18, STR0381, oPanel,MontaBlock(cGetRange), 35, 14, , oDlg:oFont, ,.T.,.F.,,.T.,&(cBlkWhen),, .F.) //"Editar"
-			TMultiGet():New( nLinha, 55, &cBlKGet,oPanel,109,33,,,,,,.T.,,.T.,&(cBlkWhen),,,.T.,/*&(cBlkVld)*/,,.T.,.F., )
-			nLinha += 31
-		Case aParametros[nx,1]==11 // MULTIGET - campo memo
-			nLinha += 10
-			SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-			&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,3])
-			TGroup():New( nLinha-8,15, nLinha+40,170,"",oPanel,,,.T.)
-			if aParametros[nx,6] // Campo Obrigatorio
-				cTextSay :="{||'<b>"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+ "<font color=red size=2 face=verdana,helvetica>*</font></b>"+"'}"
-				TSay():New( nLinha - 6, 23 , MontaBlock(cTextSay)  , oPanel , ,,,,,.T.,CLR_BLACK,,100,  ,,,,,,.T.)
-			else
-				cTextSay:= "{||'"+STRTRAN(aParametros[nx,2],"'",'"')+" ? "+"'}"
-				TSay():New( nLinha - 6, 23 , MontaBlock(cTextSay) , oPanel , ,,,,,.T.,CLR_BLACK,,100,,,,,,)
-			endif	
-			
-			cValid := Iif(Empty(aParametros[nx,4]),".T.",aParametros[nx,4])
-			cWhen  := Iif(Empty(aParametros[nx,5]),".T.",aParametros[nx,5])
-			cBlkGet  := "{ | u | If( PCount() == 0, "+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+","+"MV_PAR"+AllTrim(STRZERO(nx,2,0))+":= u ) }"
-			cBlkVld  := "{|| " + cValid + "}"
-			cBlkWhen := "{|| " + cWhen + "}"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			Endif
-			TMultiGet():New(nLinha+1,23,&cBlkGet,oPanel,140,33,/*oFont*/,/*lHScroll*/,/*nClrFore*/,/*nClrBack*/,/*oCursor*/,.T.,/*cMg*/,;
-			.T.,&(cBlkWhen),/*lCenter*/,/*lRight*/,.F.,&(cBlkVld),/*bChange*/,.T.,.F.)
-			nLinha += 31
-		Case aParametros[nx,1]==12 // FILTROS DE USUARIO POR ROTINA
-			nLinha += 8
-			SetPrvt("MV_FIL"+AllTrim(STRZERO(nx,2,0)))
-			If len(aParametros[nx])>3
-				&("MV_FIL"+AllTrim(STRZERO(nx,2,0))) := ParamLoad(cLoad,aParametros,nx,aParametros[nx,4])
-			Else
-				&("MV_FIL"+AllTrim(STRZERO(nx,2,0))) := ""
-			EndIf
-			SetPrvt("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-			&("MV_PAR"+AllTrim(STRZERO(nx,2,0))) := ""
-			cTextSay := ""
-			If Len(aParametros[nx]) > 1
-				If aParametros[nx,2] != Nil .And. ValType(aParametros[nx,2])=="C"
-					cTextSay := aParametros[nx,2]
-				EndIf
-			Else
-				AADD(aParametros[nx], "")
-			EndIf
-			cAlias1 := ""
-			If Len(aParametros[nx]) > 2
-				If aParametros[nx,3] != Nil .And. ValType(aParametros[nx,3])=="C"
-					cAlias1	:= aParametros[nx,3]
-				EndIf
-			Else
-				AADD(aParametros[nx], "")
-			EndIf
-			If empty(cAlias1)
-				If PcoX2ConPad(cAlias1)
-					cAlias1 := PcoSX2Cons()
-				Else
-					cAlias1 := ALIAS()
-				EndIf
-			EndIf
-			If empty(aParametros[nx,3])
-				aParametros[nx,3] := cAlias1
-			EndIf
-			cWhen   := ".T."
-			If Len(aParametros[nx]) > 4
-				If aParametros[nx,5] != Nil .And. ValType(aParametros[nx,5])=="L"
-					cWhen	:= If(aParametros[nx,5],".T.",".F.")
-				EndIf
-			EndIf
-			cBlkWhen := "{|| "+cWhen+" }"
-			If ParamLoad(cLoad,aParametros,0,"1")=="2"
-				cBlKWhen := "{|| .F. }"
-			EndIf
-			aOpcoes := {"Visualizar todos os registros"}
-			cBlkWhen2:=cBlKWhen
-			dbSelectArea("AN7")
-			AN7->(dbSetOrder(1))
-			AN7->(MsSeek(cFilAN7+oApp:cUserID+cRotina+cAlias1))
-			Do While !AN7->(Eof()) .And. AN7->(AN7_FILIAL+AN7_USER+AN7_FUNCAO+AN7_ALIAS)==cFilAN7+oApp:cUserID+cRotina+cAlias1
-				AADD(aOpcoes, AN7->AN7_FILTR)
-				AN7->(dbSkip())
-			EndDo
-			TGroup():New( nLinha-8,15, nLinha+20,170, cTextSay,oPanel,,,.T.)
-			cBlKVld := "{|| .T.}"
-			cBlkGet := "{ | u | If( PCount() == 0, MV_FIL"+AllTrim(STRZERO(nx,2,0))+", MV_FIL"+AllTrim(STRZERO(nx,2,0))+":= u) }"
-			SetPrvt("oCombo"+AllTrim(STRZERO(nx,2,0)))
-			&("oCombo"+AllTrim(STRZERO(nx,2,0))) := TComboBox():New( nLinha+4, 20, &cBlkGet, aOpcoes, 100, 10, oPanel,,,,,,.T.,,,.F.,&(cBlkWhen),.T.,,,,"MV_FIL"+AllTrim(STRZERO(nx,2,0)))
-
-			cAux := "{|| MV_PAR"+AllTrim(STRZERO(nx,2,0))+" := PmsGetFilt( oApp:cUserID, cRotina, '"+cAlias1+"', MV_FIL"+AllTrim(STRZERO(nx,2,0))+" )}"
-	   		TBtnBmp2():New( (nLinha+4)*2, 120*2, 25, 25, "FILTRO1"  , , , , &cAux , oPanel, "Aplicar filtro selecionado", &(cBlkWhen), )
-			cAux := "{|| PmsIncFilt( aParametros, oApp:cUserID, cRotina, '"+cAlias1+"' )}"
-	   		TBtnBmp2():New( (nLinha+4)*2, 132*2, 25, 25, "BPMSDOCI" , , , , &cAux , oPanel, "Novo filtro", &(cBlkWhen2), )
-			cAux := "{|| PmsAltFilt( aParametros, oCombo"+AllTrim(STRZERO(nx,2,0))+":nAt, oApp:cUserID, cRotina, '"+cAlias1+"', MV_FIL"+AllTrim(STRZERO(nx,2,0))+" )}"
-	   		TBtnBmp2():New( (nLinha+4)*2, 144*2, 25, 25, "BPMSDOCA" , , , , &cAux , oPanel, "Editar filtro selecionado", &(cBlkWhen2), )
-			cAux := "{|| PmsExcFilt( aParametros, oCombo"+AllTrim(STRZERO(nx,2,0))+":nAt, oApp:cUserID, cRotina, '"+cAlias11+"', MV_FIL"+AllTrim(STRZERO(nx,2,0))+" )}"
-	   		TBtnBmp2():New( (nLinha+4)*2, 156*2, 25, 25, "BPMSDOCE" , , , , &cAux , oPanel, "Excluir o filtro selecionado", &(cBlkWhen2), )
-			nLinha += 11
-    EndCase
-	nLinha += 17
-Next
-
-
-lGrpAdm := .F.
-cCodUsr := RetCodUsr()
-If !Empty(cCodUsr)
-	lGrpAdm := PswAdmin( /*cUser*/, /*cPsw*/,cCodUsr)==0
-EndIf
-
-If !lWizard .And.  lGrpAdm .And. lCanSave
-	@ nlinha+8,10 BUTTON oButton PROMPT "+" SIZE 10 ,7   ACTION {|| ParamSave(cLoad,aParametros,"1") } OF oPanel PIXEL
-	@ nlinha+8,22 SAY STR0307 SIZE 120,7 Of oPanel FONT oFntVerdana COLOR RGB(80,80,80) PIXEL //"Administrador: Salvar configuaÁıes"
-	oButton:cToolTip := STR0308 + cTitle //"Clique aqui para salvar as configuraÁıes de: "
-
-	@ nlinha+15,10 BUTTON oButton PROMPT "+" SIZE 10 ,7   ACTION {|| ParamSave(cLoad,aParametros,"2"),Alert(STR0313) } OF oPanel PIXEL  //"Bloqueio efetuado. Os parametros estar„o bloqueados a partir da prÛxima chamada."
-	@ nlinha+15,22 SAY STR0309 SIZE 120,7 Of oPanel FONT oFntVerdana COLOR RGB(80,80,80) PIXEL //"Administrador: Bloquear"
-	oButton:cToolTip := STR0310 + cTitle //"Clique aqui para bloquear as configuraÁıes de: "
-
-	@ nlinha+22,10 BUTTON oButton PROMPT "+" SIZE 10 ,7   ACTION {|| ParamSave(cLoad,aParametros,"1"),Alert(STR0314)  } OF oPanel PIXEL  //"Desbloqueio efetuado. Os parametros estar„o desbloqueados a partir da prÛxima chamada."
-	@ nlinha+22,22 SAY STR0311 SIZE 120,7 Of oPanel FONT oFntVerdana COLOR RGB(80,80,80) PIXEL //"Administrador: Desbloquear"
-	oButton:cToolTip := STR0312 + cTitle //"Clique aqui para desbloquear as configuraÁıes de: "
-EndIf
-
-If loMainWnd
-	oMainWnd:CoorsUpdate()
-EndIf
-
-If ! lWizard
-	oPanelB := TPanel():New(0,0,'',oDlg, oDlg:oFont, .T., .T.,, ,40,20,.T.,.T. )
-	oPanelB:Align := CONTROL_ALIGN_BOTTOM
-
-	For nx := 1 to Len(aButtons)
-		SButton():New( 4, 157-(nx*33), aButtons[nx,1],aButtons[nx,2],oPanelB,.T.,IIf(Len(aButtons[nx])==3,aButtons[nx,3],Nil),)
-	Next
-	//DEFINE SBUTTON FROM 4, 114   TYPE 4 ENABLE OF oDlg ACTION ParamSave(cLoad,aParametros)
-	DEFINE SBUTTON FROM 4, 157   TYPE 1 ENABLE OF oPanelB ACTION (If(ParamOk(aParametros,@aRet).And.Eval(bOk),(oDlg:End(),lOk:=.T.),(lOk:=.F.)))
-	DEFINE SBUTTON FROM 4, 190   TYPE 2 ENABLE OF oPanelB ACTION (lOk:=.F.,oDlg:End())
-	If loMainWnd .AND. (nLinha*2) + 80 > oMainWnd:nBottom-oMainWnd:nTop
-		nBottom  := oDLg:nTop + oMAinWnd:nBottom-oMAinWnd:nTop - 105
-	Else
-		nBottom := oDLg:nTop + (nLinha*2) + 80
-	EndIf
-	nBottom := MAX(310,nBottom)
-	oDlg:nBottom := nBottom
-EndIf
-If ! lWizard
-	ACTIVATE MSDIALOG oDlg CENTERED
-	If lOk .And. lUserSave
-		ParamSave(cLoad,aParametros,"1")
-	Endif
-EndIf
-Return lOk
-
-
-Static Function ParamSave(cLoad,aParametros,cBloq)
-local nx
-
-Local cWrite := cBloq+"Arquivo de configuraÁ„o - Parambox Protheus "+CRLF
-Local cBarra := If(issrvunix(), "/", "\")
-
-For nx := 1 to Len(aParametros)
-	Do Case
-		Case ValType(&("MV_PAR"+AllTrim(STRZERO(nx,2,0)))) == "C"
-			cWrite += "C"+&("MV_PAR"+AllTrim(STRZERO(nx,2,0)))+CRLF
-		Case ValType(&("MV_PAR"+AllTrim(STRZERO(nx,2,0)))) == "N"
-			cWrite += "N"+Str(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))))+CRLF
-		Case ValType(&("MV_PAR"+AllTrim(STRZERO(nx,2,0)))) == "L"
-			cWrite += "L"+If(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))),"T","F")+CRLF
-		Case ValType(&("MV_PAR"+AllTrim(STRZERO(nx,2,0)))) == "D"
-			cWrite += "D"+DTOC(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))))+CRLF
-		OtherWise
-			cWrite += "X"+CRLF
-	EndCase
-Next
-If !ExistDir(cBarra + "PROFILE")
-	MakeDir(cBarra + "PROFILE")
-EndIf
-MemoWrit(cBarra + "PROFILE" + cBarra +Alltrim(cLoad)+".PRB",cWrite)
-Return
-
-Static Function ParamLoad(cLoad,aParametros,nx,xDefault,lDefault)
-local ny
-Local cBarra 		:= If(issrvunix(), "/", "\")
-Local cTypeData 	:= NIL
-DEFAULT lDefault 	:= .F.
-
-If File(cBarra + "PROFILE" + cBarra +Alltrim(cLoad)+".PRB")
-	If FT_FUse(cBarra +"PROFILE"+cBarra+Alltrim(cLoad)+".PRB")<> -1
-		FT_FGOTOP()
-		If nx == 0
-			cLinha := FT_FREADLN()
-			FT_FUSE()
-			Return Substr(cLinha,1,1)
-		EndIf
-		For ny := 1 to nx
-			FT_FSKIP()
-		Next
-		cLinha := FT_FREADLN()
-		If !lDefault
-			cTypeData := Valtype(xDefault)
-			Do case
-				Case Substr(cLinha,1,1) == "L" .And. cTypeData == "L"
-					xRet := If(Substr(cLinha,2,1)=="F",.F.,.T.)
-				Case Substr(cLinha,1,1) == "D" .And. cTypeData == "D"
-					xRet := CTOD(Substr(cLinha,2,10))
-				Case Substr(cLinha,1,1) == "C" .And. cTypeData == "C"
-					//**********************************************
-					// Tratamento para aumentar o tamanha do campo *
-					//**********************************************
-					If VALTYPE(xDefault)=="C"
-						xRet := Padr(Substr(cLinha,2,Len(cLinha)),Len(xDefault))
-					Else
-						xRet := Substr(cLinha,2,Len(cLinha))
-					EndIf
-				Case Substr(cLinha,1,1) == "N" .And. cTypeData == "N"
-					xRet := Val(Substr(cLinha,2,Len(cLinha)))
-				OtherWise
-					xRet := xDefault
-			EndCase
-		Else
-			xRet := xDefault
-		Endif
-		FT_FUSE()
-	EndIf
-Else
-	xRet := xDefault
-EndIf
-
-Return xRet
-
-/*/
-‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹‹
-±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
-±±⁄ƒƒƒƒƒƒƒƒƒƒ¬ƒƒƒƒƒƒƒƒ¬ƒƒƒƒƒƒƒ¬ƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒ¬ƒƒƒƒƒƒ¬ƒƒƒƒƒƒƒƒƒƒƒƒø±±
-±±≥FunáÖo    ≥ParamOk ≥ Autor ≥ Edson Maricate          ≥ Data ≥ 09-02-2001 ≥±±
-±±√ƒƒƒƒƒƒƒƒƒƒ≈ƒƒƒƒƒƒƒƒ¡ƒƒƒƒƒƒƒ¡ƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒ¡ƒƒƒƒƒƒ¡ƒƒƒƒƒƒƒƒƒƒƒƒ¥±±
-±±≥DescriáÖo ≥Valida a digitacao de todos oa parametros.                    ≥±±
-±±√ƒƒƒƒƒƒƒƒƒƒ≈ƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒ¥±±
-±±≥ Uso      ≥Generico                                                      ≥±±
-±±¿ƒƒƒƒƒƒƒƒƒƒ¡ƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒƒŸ±±
-±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
-ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-*/
-Static Function ParamOk(aParametros,aRet)
-Local nx
-Local lRet	:= .T.
-
-For nx := 1 to Len(aParametros)
-	Do case
-		Case aParametros[nx,1]==1
-			If aParametros[nx,9] .And. Empty(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))))
-				lRet := .F.
-				HELP("   ",1,"OBRIGAT",,STR0174+aParametros[nx,2]+SPACE(40),3,0) //"Campo : "
-				Exit
-			EndIf
-		Case aParametros[nx,1]==3
-			If aParametros[nx,7] .And. Empty(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))))
-				lRet := .F.
-				HELP("   ",1,"OBRIGAT",,STR0174+aParametros[nx,2]+SPACE(40),3,0) //"Campo : "
-				Exit
-			EndIf
-		Case aParametros[nx,1]==6
-			If aParametros[nx,8] .And. Empty(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))))
-				lRet := .F.
-				HELP("   ",1,"OBRIGAT",,STR0174+aParametros[nx,2]+SPACE(40),3,0) //"Campo : "
-				Exit
-			EndIf
-		Case aParametros[nx,1]==11
-			If aParametros[nx,6] .And. Empty(&("MV_PAR"+AllTrim(STRZERO(nx,2,0))))
-				lRet := .F.
-				HELP("   ",1,"OBRIGAT",,STR0174+aParametros[nx,2]+SPACE(40),3,0) //"Campo : "
-				Exit
-			EndIf
-	EndCase
-Next
-
-If lRet
-	aRet := Array(Len(aParametros))
-	For nx := 1 to Len(aParametros)
-		aRet[nx] := &("MV_PAR"+AllTrim(STRZERO(nx,2,0)))
-	Next
-EndIf
-
-Return lRet
