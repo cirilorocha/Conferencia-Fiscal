@@ -26,7 +26,7 @@ A tela principal é um objeto MVC montado a partir dos dados da tabela temporár
 * Grid Itens (SD1) [FILHO]
 * Livros Fiscais (SFT) [NETO]
 
-**Da forma que está atualmente ainda precisa de alguns retoques para funcione em qualquer ambiente, além do CX-Lib-Core que ainda vou publicar aqui no GitHub**
+**Da forma que está atualmente talvez ainda precise de alguns retoques para funcione em qualquer ambiente, além do [CXLibCore](https://github.com/cirilorocha/CXLibCore)**
 
 ## Browser Principal
 
